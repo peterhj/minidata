@@ -1,0 +1,17 @@
+[package]
+name = "superdata"
+version = "0.0.1"
+authors = ["Peter Jin <peterhaijin@gmail.com>"]
+
+[lib]
+name = "superdata"
+path = "src/lib.rs"
+
+[[bin]]
+name = "inspect-imagenet"
+path = "tools/inspect-imagenet.rs"
+
+[dependencies]
+extar = { path = "../extar" }
+imgio = { path = "../imgio" }
+sharedmem = { path = "../sharedmem" }
