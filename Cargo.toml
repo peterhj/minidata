@@ -12,6 +12,7 @@ name = "inspect-imagenet"
 path = "tools/inspect-imagenet.rs"
 
 [dependencies]
+colorimage = { path = "../colorimage" }
 extar = { path = "../extar" }
-imgio = { path = "../imgio" }
+rand = "*"
 sharedmem = { path = "../sharedmem" }
