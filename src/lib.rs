@@ -7,39 +7,54 @@ use rand::*;
 use std::sync::mpsc::*;
 
 pub mod datasets;
-pub mod imageproc;
+pub mod image;
 
 pub trait RandomAccess {
   type Item;
 
   fn len(&self) -> usize;
   fn at(&self, idx: usize) -> Self::Item;
-}
 
-pub trait RandomAccessExt: RandomAccess + Sized {
-  fn one_pass(self) -> OnePassDataSrc<Self>;
-  fn uniform_shuffle(self) -> UniformShuffleDataSrc<Self>;
-  fn uniform_random(self) -> UniformShuffleDataSrc<Self>;
+  fn one_pass(self) -> OnePassDataSrc<Self> where Self: Sized {
+    OnePassDataSrc::new(self)
+  }
+
+  fn uniform_shuffle(self) -> UniformShuffleDataSrc<Self> where Self: Sized {
+    // TODO
+    unimplemented!();
+  }
+
+  fn uniform_random(self) -> UniformShuffleDataSrc<Self> where Self: Sized {
+    // TODO
+    unimplemented!();
+  }
 }
 
 pub trait DataIter: Iterator {
   fn reseed(&mut self, seed_rng: &mut Rng);
   fn reset(&mut self);
-}
 
-pub trait DataIterExt: DataIter + Sized {
-  fn map<F, V>(self, f: F) -> MapDataIter<Self, F, V> where F: Fn(<Self as Iterator>::Item) -> V {
+  fn map_data<F, V>(self, f: F) -> MapDataIter<Self, F, V> where F: FnMut(<Self as Iterator>::Item) -> V, Self: Sized {
     MapDataIter::new(self, f)
   }
 
-  fn round_up_repeat(self, rdup_sz: usize) -> RoundUpRepeatDataIter<Self> where <Self as Iterator>::Item: Clone {
-    RoundUpRepeatDataIter::new(self, rdup_sz)
+  fn round_up_data(self, rdup_sz: usize) -> RoundUpDataIter<Self> where <Self as Iterator>::Item: Clone, Self: Sized {
+    RoundUpDataIter::new(self, rdup_sz)
   }
 }
 
 pub struct OnePassDataSrc<R> where R: RandomAccess {
   data:     R,
   count:    usize,
+}
+
+impl<R> OnePassDataSrc<R> where R: RandomAccess {
+  pub fn new(data: R) -> Self {
+    OnePassDataSrc{
+      data:     data,
+      count:    0,
+    }
+  }
 }
 
 impl<R> Iterator for OnePassDataSrc<R> where R: RandomAccess {
@@ -76,12 +91,12 @@ pub struct UniformRandomDataSrc<R> where R: RandomAccess {
   //rng:      _,
 }
 
-pub struct MapDataIter<I, F, V> where I: DataIter, F: Fn(<I as Iterator>::Item) -> V {
+pub struct MapDataIter<I, F, V> where I: DataIter, F: FnMut(<I as Iterator>::Item) -> V {
   iter: I,
   mapf: F,
 }
 
-impl<I, F, V> MapDataIter<I, F, V> where I: DataIter, F: Fn(<I as Iterator>::Item) -> V {
+impl<I, F, V> MapDataIter<I, F, V> where I: DataIter, F: FnMut(<I as Iterator>::Item) -> V {
   pub fn new(iter: I, mapf: F) -> Self {
     MapDataIter{
       iter: iter,
@@ -90,7 +105,7 @@ impl<I, F, V> MapDataIter<I, F, V> where I: DataIter, F: Fn(<I as Iterator>::Ite
   }
 }
 
-impl<I, F, V> Iterator for MapDataIter<I, F, V> where I: DataIter, F: Fn(<I as Iterator>::Item) -> V {
+impl<I, F, V> Iterator for MapDataIter<I, F, V> where I: DataIter, F: FnMut(<I as Iterator>::Item) -> V {
   type Item = V;
 
   fn next(&mut self) -> Option<Self::Item> {
@@ -101,7 +116,7 @@ impl<I, F, V> Iterator for MapDataIter<I, F, V> where I: DataIter, F: Fn(<I as I
   }
 }
 
-impl<I, F, V> DataIter for MapDataIter<I, F, V> where I: DataIter, F: Fn(<I as Iterator>::Item) -> V {
+impl<I, F, V> DataIter for MapDataIter<I, F, V> where I: DataIter, F: FnMut(<I as Iterator>::Item) -> V {
   fn reseed(&mut self, seed_rng: &mut Rng) {
     self.iter.reseed(seed_rng);
   }
@@ -111,7 +126,7 @@ impl<I, F, V> DataIter for MapDataIter<I, F, V> where I: DataIter, F: Fn(<I as I
   }
 }
 
-pub struct RoundUpRepeatDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
+pub struct RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
   rdup_sz:  usize,
   iter:     I,
   closed:   bool,
@@ -119,9 +134,9 @@ pub struct RoundUpRepeatDataIter<I> where I: DataIter, <I as Iterator>::Item: Cl
   rep_item: Option<<I as Iterator>::Item>,
 }
 
-impl<I> RoundUpRepeatDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
+impl<I> RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
   pub fn new(iter: I, rdup_sz: usize) -> Self {
-    RoundUpRepeatDataIter{
+    RoundUpDataIter{
       rdup_sz:  rdup_sz,
       iter:     iter,
       closed:   false,
@@ -131,7 +146,7 @@ impl<I> RoundUpRepeatDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone
   }
 }
 
-impl<I> Iterator for RoundUpRepeatDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
+impl<I> Iterator for RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
   type Item = (<I as Iterator>::Item, bool);
 
   fn next(&mut self) -> Option<Self::Item> {
@@ -164,7 +179,7 @@ impl<I> Iterator for RoundUpRepeatDataIter<I> where I: DataIter, <I as Iterator>
   }
 }
 
-impl<I> DataIter for RoundUpRepeatDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
+impl<I> DataIter for RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
   fn reseed(&mut self, seed_rng: &mut Rng) {
     self.iter.reseed(seed_rng);
   }

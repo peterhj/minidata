@@ -3,25 +3,44 @@ use colorimage::*;
 use extar::*;
 use sharedmem::*;
 
+use std::collections::{HashMap};
 use std::fs::{File};
-use std::io::{Read, Cursor};
+use std::io::{BufRead, Read, BufReader, Cursor};
 use std::path::{PathBuf};
+
+#[derive(Clone, Debug)]
+pub struct ImagenetConfig {
+  pub wordnet_ids:  Option<PathBuf>,
+  pub val_truth:    Option<PathBuf>,
+}
 
 #[derive(Clone)]
 pub struct ImagenetVal {
   path:     PathBuf,
+  labels:   Vec<u32>,
   mmap:     SharedMem<u8>,
   index:    Vec<(usize, usize, u32)>,
 }
 
 impl ImagenetVal {
-  pub fn open(path: PathBuf) -> Result<ImagenetVal, ()> {
+  pub fn open(path: PathBuf, labels_path: PathBuf) -> Result<ImagenetVal, ()> {
+    // TODO: read ground truth labels from file.
+    let mut labels = vec![];
+    let mut label_file = BufReader::new(File::open(&labels_path).unwrap());
+    for line in label_file.lines() {
+      let line = line.unwrap();
+      let token = line.split_whitespace().next().unwrap();
+      let raw_label: u32 = token.parse().unwrap();
+      labels.push(raw_label - 1);
+    }
+    println!("DEBUG: imagenet val: labels: {}", labels.len());
     let file = File::open(&path).unwrap();
     let file_len = file.metadata().unwrap().len() as usize;
     let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
     let mut data = ImagenetVal{
-      path: path,
-      mmap: SharedMem::new(mmap),
+      path:     path,
+      labels:   labels,
+      mmap:     SharedMem::new(mmap),
       index:    vec![],
     };
     data._build_index();
@@ -32,12 +51,11 @@ impl ImagenetVal {
     self.index.clear();
     let cursor = Cursor::new(&self.mmap as &[u8]);
     let mut tar = BufferedTarFile::new(cursor);
-    for im_entry in tar.raw_entries() {
+    for (idx, im_entry) in tar.raw_entries().enumerate() {
       let im_entry = im_entry.unwrap();
-      // TODO: read label.
       let offset = im_entry.entry_pos as _;
       let size = im_entry.entry_sz as _;
-      let label = 0; // TODO
+      let label = self.labels[idx];
       self.index.push((offset, size, label));
     }
   }
@@ -75,18 +93,29 @@ impl RandomAccess for ImagenetVal {
 #[derive(Clone)]
 pub struct ImagenetTrain {
   path:     PathBuf,
+  labels:   HashMap<String, u32>,
   mmap:     SharedMem<u8>,
   index:    Vec<(usize, usize, u32)>,
 }
 
 impl ImagenetTrain {
-  pub fn open(path: PathBuf) -> Result<ImagenetTrain, ()> {
+  pub fn open(path: PathBuf, labels_path: PathBuf) -> Result<ImagenetTrain, ()> {
+    // TODO: read WordNet ID -> label map from file.
+    let mut labels = HashMap::new();
+    let mut label_file = BufReader::new(File::open(&labels_path).unwrap());
+    for (row_idx, line) in label_file.lines().enumerate() {
+      let line = line.unwrap();
+      let token = line.split_whitespace().next().unwrap();
+      labels.insert(token.to_owned(), row_idx as _);
+    }
+    println!("DEBUG: imagenet train: labels: {}", labels.len());
     let file = File::open(&path).unwrap();
     let file_len = file.metadata().unwrap().len() as usize;
     let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
     let mut data = ImagenetTrain{
-      path: path,
-      mmap: SharedMem::new(mmap),
+      path:     path,
+      labels:   labels,
+      mmap:     SharedMem::new(mmap),
       index:    vec![],
     };
     data._build_index();
