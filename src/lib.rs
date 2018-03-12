@@ -50,7 +50,7 @@ pub trait RandomAccess {
 
 pub trait DataIter: Iterator {
   fn reset(&mut self);
-  fn reseed(&mut self, seed_rng: &mut Rng);
+  fn reseed(&mut self, seed_rng: &mut Rng) { unimplemented!(); }
 
   fn loop_reset(self) -> LoopResetDataIter<Self> where Self: Sized {
     LoopResetDataIter::new(self)
@@ -145,6 +145,12 @@ pub struct UniformRandomDataSrc<R> where R: RandomAccess {
 
 pub struct LoopResetDataIter<I> where I: DataIter {
   iter: I,
+}
+
+impl<I> LoopResetDataIter<I> where I: DataIter {
+  pub fn new(iter: I) -> Self {
+    LoopResetDataIter{iter: iter}
+  }
 }
 
 impl<I> Iterator for LoopResetDataIter<I> where I: DataIter {
@@ -364,8 +370,15 @@ impl<Item> Iterator for AsyncJoinDataIter<Item> {
   fn next(&mut self) -> Option<Item> {
     while self.nworkers > self.nclosed {
       let rank = 0; // TODO: sample uniformly? or round robin?
+      if self.rclosed[rank] {
+        continue;
+      }
       match self.w_rxs[rank].recv() {
-        Err(_) => None,
+        Err(_) => {
+          self.nclosed += 1;
+          self.rclosed[rank] = true;
+          continue;
+        }
         Ok(msg) => match msg {
           AsyncWorkerMsg::Closed => {
             self.nclosed += 1;
@@ -396,7 +409,7 @@ impl<Item> DataIter for AsyncJoinDataIter<Item> {
   }
 }
 
-pub fn async_prefetch_data(capacity: usize, iter: I) -> AsyncPrefetchDataIter<<I as Iterator>::Item> where I: DataIter + Send {
+pub fn async_prefetch_data<I>(capacity: usize, iter: I) -> AsyncPrefetchDataIter<<I as Iterator>::Item> where I: DataIter + Send + 'static, <I as Iterator>::Item: Send {
   let (w_tx, w_rx) = channel();
   let (c_tx, c_rx) = channel();
   let mut state = AsyncWorkerState{
@@ -470,7 +483,7 @@ impl<Item> Iterator for AsyncPrefetchDataIter<Item> {
         },
       }
     }
-    match self.pop_front() {
+    match self.queue.pop_front() {
       None => {
         assert!(self.flag);
         self.closed = true;
