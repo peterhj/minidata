@@ -16,3 +16,4 @@ colorimage = { path = "../colorimage" }
 extar = { path = "../extar" }
 rand = "*"
 sharedmem = { path = "../sharedmem" }
+string_cache = "*"

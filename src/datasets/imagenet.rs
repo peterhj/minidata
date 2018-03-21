@@ -133,7 +133,7 @@ impl ImagenetTrain {
       let mut archive_tar = BufferedTarFile::new(archive_cursor);
       for im_entry in archive_tar.raw_entries() {
         let im_entry = im_entry.unwrap();
-        let im_filename_toks: Vec<_> = im_entry.file_path.as_os_str().to_str().unwrap().splitn(2, ".").collect();
+        let im_filename_toks: Vec<_> = im_entry.path.as_os_str().to_str().unwrap().splitn(2, ".").collect();
         let im_stem_toks: Vec<_> = im_filename_toks[0].splitn(2, "_").collect();
         let im_wnid = im_stem_toks[0].to_owned();
         let offset = (tar_entry.entry_pos + im_entry.entry_pos) as _;

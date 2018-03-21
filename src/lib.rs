@@ -3,6 +3,7 @@ extern crate extar;
 extern crate rand;
 //extern crate rng;
 extern crate sharedmem;
+extern crate string_cache;
 
 //use rng::*;
 
