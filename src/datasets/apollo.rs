@@ -167,7 +167,9 @@ impl ApolloSceneData {
           self.infos.get_mut(&key).unwrap().camera5.image_pos = entry_pos;
           self.infos.get_mut(&key).unwrap().camera5.image_sz = entry_sz;
         }
-        (FrameCam::Camera5, FrameTy::Image, _) => unreachable!(),
+        (FrameCam::Camera5, FrameTy::Image, _) => {
+          unreachable!();
+        }
         (FrameCam::Camera5, FrameTy::Label, Some(LabelTy::Semantic)) |
         (FrameCam::Camera5, FrameTy::Label, None) => {
           self.infos.get_mut(&key).unwrap().camera5.s_label_pos = entry_pos;
@@ -181,15 +183,15 @@ impl ApolloSceneData {
           self.infos.get_mut(&key).unwrap().camera6.image_pos = entry_pos;
           self.infos.get_mut(&key).unwrap().camera6.image_sz = entry_sz;
         }
-        (FrameCam::Camera6, FrameTy::Image, _) => unreachable!(),
+        (FrameCam::Camera6, FrameTy::Image, _) => {
+          unreachable!();
+        }
         (FrameCam::Camera6, FrameTy::Label, Some(LabelTy::Semantic)) |
         (FrameCam::Camera6, FrameTy::Label, None) => {
-          //println!("DEBUG: semantic label path: {:?}", entry.path);
           self.infos.get_mut(&key).unwrap().camera6.s_label_pos = entry_pos;
           self.infos.get_mut(&key).unwrap().camera6.s_label_sz = entry_sz;
         }
         (FrameCam::Camera6, FrameTy::Label, Some(LabelTy::Instance)) => {
-          //println!("DEBUG: instance label path: {:?}", entry.path);
           self.infos.get_mut(&key).unwrap().camera6.i_label_pos = entry_pos;
           self.infos.get_mut(&key).unwrap().camera6.i_label_sz = entry_sz;
         }
