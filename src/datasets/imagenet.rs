@@ -17,15 +17,15 @@ pub struct ImagenetConfig {
 }
 
 #[derive(Clone)]
-pub struct ImagenetVal {
+pub struct ImagenetValData {
   cfg:      ImagenetConfig,
   labels:   Vec<u32>,
   mmap:     SharedMem<u8>,
   index:    Vec<(usize, usize, u32)>,
 }
 
-impl ImagenetVal {
-  pub fn open(cfg: ImagenetConfig) -> Result<ImagenetVal, ()> {
+impl ImagenetValData {
+  pub fn open(cfg: ImagenetConfig) -> Result<ImagenetValData, ()> {
     let mut labels = vec![];
     let mut label_file = BufReader::new(File::open(cfg.val_ground_truth.as_ref().unwrap()).unwrap());
     for line in label_file.lines() {
@@ -38,7 +38,7 @@ impl ImagenetVal {
     let file = File::open(cfg.val_data.as_ref().unwrap()).unwrap();
     let file_len = file.metadata().unwrap().len() as usize;
     let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
-    let mut data = ImagenetVal{
+    let mut data = ImagenetValData{
       cfg:      cfg,
       labels:   labels,
       mmap:     SharedMem::new(mmap),
@@ -77,7 +77,7 @@ impl ImagenetVal {
   }
 }
 
-impl RandomAccess for ImagenetVal {
+impl RandomAccess for ImagenetValData {
   type Item = (SharedMem<u8>, u32);
 
   fn len(&self) -> usize {
@@ -92,15 +92,15 @@ impl RandomAccess for ImagenetVal {
 }
 
 #[derive(Clone)]
-pub struct ImagenetTrain {
+pub struct ImagenetTrainData {
   cfg:      ImagenetConfig,
   labels:   HashMap<String, u32>,
   mmap:     SharedMem<u8>,
   index:    Vec<(usize, usize, u32)>,
 }
 
-impl ImagenetTrain {
-  pub fn open(cfg: ImagenetConfig) -> Result<ImagenetTrain, ()> {
+impl ImagenetTrainData {
+  pub fn open(cfg: ImagenetConfig) -> Result<ImagenetTrainData, ()> {
     let mut labels = HashMap::new();
     let mut label_file = BufReader::new(File::open(cfg.wordnet_ids.as_ref().unwrap()).unwrap());
     for (row_idx, line) in label_file.lines().enumerate() {
@@ -112,7 +112,7 @@ impl ImagenetTrain {
     let file = File::open(cfg.train_data.as_ref().unwrap()).unwrap();
     let file_len = file.metadata().unwrap().len() as usize;
     let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
-    let mut data = ImagenetTrain{
+    let mut data = ImagenetTrainData{
       cfg:      cfg,
       labels:   labels,
       mmap:     SharedMem::new(mmap),
@@ -166,7 +166,7 @@ impl ImagenetTrain {
   }
 }
 
-impl RandomAccess for ImagenetTrain {
+impl RandomAccess for ImagenetTrainData {
   type Item = (SharedMem<u8>, u32);
 
   fn len(&self) -> usize {
