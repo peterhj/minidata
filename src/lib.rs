@@ -10,6 +10,7 @@ extern crate string_cache;
 use rand::*;
 use std::cmp::{min};
 use std::collections::{VecDeque};
+use std::marker::{PhantomData};
 use std::sync::mpsc::*;
 use std::thread;
 
@@ -37,21 +38,26 @@ pub trait RandomAccess {
   fn one_pass(self) -> OnePassDataSrc<Self> where Self: Sized {
     OnePassDataSrc::new(self)
   }
+}
 
-  fn uniform_shuffle(self, seed_rng: &mut Rng) -> UniformShuffleDataSrc<Self> where Self: Sized {
+pub trait RandomSample<R: Rng>: RandomAccess {
+  fn uniform_shuffle(self, seed_rng: &mut R) -> UniformShuffleDataSrc<Self, R> where Self: Sized {
     // TODO
     unimplemented!();
   }
 
-  fn uniform_random(self, seed_rng: &mut Rng) -> UniformRandomDataSrc<Self> where Self: Sized {
+  fn uniform_random(self, seed_rng: &mut R) -> UniformRandomDataSrc<Self, R> where Self: Sized {
     // TODO
     unimplemented!();
   }
 }
 
+impl<R: Rng, D: RandomAccess> RandomSample<R> for D {
+}
+
 pub trait DataIter: Iterator {
+  /*fn reseed(&mut self, seed_rng: &mut Rng) { unimplemented!(); }*/
   fn reset(&mut self);
-  fn reseed(&mut self, seed_rng: &mut Rng) { unimplemented!(); }
 
   fn loop_reset(self) -> LoopResetDataIter<Self> where Self: Sized {
     LoopResetDataIter::new(self)
@@ -64,27 +70,33 @@ pub trait DataIter: Iterator {
   fn round_up_data(self, rdup_sz: usize) -> RoundUpDataIter<Self> where <Self as Iterator>::Item: Clone, Self: Sized {
     RoundUpDataIter::new(self, rdup_sz)
   }
+
+  fn batch_data(self, batch_sz: usize) -> BatchDataIter<Self> where Self: Sized {
+    BatchDataIter::new(self, batch_sz)
+  }
 }
 
-pub struct RangeData<R> where R: RandomAccess {
-  data:     R,
+pub struct RangeData<D> where D: RandomAccess {
+  data:     D,
   offset:   usize,
   len:      usize,
+  //_mrk:     PhantomData<fn (&mut R)>,
 }
 
-impl<R> RangeData<R> where R: RandomAccess {
-  pub fn new(data: R, start_idx: usize, end_idx: usize) -> Self {
+impl<D> RangeData<D> where D: RandomAccess {
+  pub fn new(data: D, start_idx: usize, end_idx: usize) -> Self {
     assert!(start_idx <= end_idx);
     RangeData{
       data:     data,
       offset:   start_idx,
       len:      end_idx - start_idx,
+      //_mrk:     PhantomData,
     }
   }
 }
 
-impl<R> RandomAccess for RangeData<R> where R: RandomAccess {
-  type Item = <R as RandomAccess>::Item;
+impl<D> RandomAccess for RangeData<D> where D: RandomAccess {
+  type Item = <D as RandomAccess>::Item;
 
   fn len(&self) -> usize {
     self.len
@@ -96,27 +108,27 @@ impl<R> RandomAccess for RangeData<R> where R: RandomAccess {
   }
 }
 
-pub struct OnePassDataSrc<R> where R: RandomAccess {
-  data:     R,
-  count:    usize,
+pub struct OnePassDataSrc<D> where D: RandomAccess {
+  data:     D,
+  counter:  usize,
 }
 
-impl<R> OnePassDataSrc<R> where R: RandomAccess {
-  pub fn new(data: R) -> Self {
+impl<D> OnePassDataSrc<D> where D: RandomAccess {
+  pub fn new(data: D) -> Self {
     OnePassDataSrc{
       data:     data,
-      count:    0,
+      counter:  0,
     }
   }
 }
 
-impl<R> Iterator for OnePassDataSrc<R> where R: RandomAccess {
-  type Item = <R as RandomAccess>::Item;
+impl<D> Iterator for OnePassDataSrc<D> where D: RandomAccess {
+  type Item = <D as RandomAccess>::Item;
 
   fn next(&mut self) -> Option<Self::Item> {
-    if self.count < self.data.len() {
-      let item = self.data.at(self.count);
-      self.count += 1;
+    if self.counter < self.data.len() {
+      let item = self.data.at(self.counter);
+      self.counter += 1;
       Some(item)
     } else {
       None
@@ -124,24 +136,41 @@ impl<R> Iterator for OnePassDataSrc<R> where R: RandomAccess {
   }
 }
 
-impl<R> DataIter for OnePassDataSrc<R> where R: RandomAccess {
-  fn reseed(&mut self, seed_rng: &mut Rng) {
-  }
+impl<D> DataIter for OnePassDataSrc<D> where D: RandomAccess {
+  /*fn reseed(&mut self, seed_rng: &mut Rng) {
+  }*/
 
   fn reset(&mut self) {
-    self.count = 0;
+    self.counter = 0;
   }
 }
 
-pub struct UniformShuffleDataSrc<R> where R: RandomAccess {
+pub struct UniformShuffleDataSrc<D, R> where D: RandomAccess, R: Rng {
   //rng:      Xorshiftplus128Rng,
-  data:     R,
-  count:    usize,
+  data:     D,
+  counter:  usize,
+  _mrk:     PhantomData<R>,
 }
 
-pub struct UniformRandomDataSrc<R> where R: RandomAccess {
+pub struct UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng {
   //rng:      Xorshiftplus128Rng,
-  data:     R,
+  data:     D,
+  _mrk:     PhantomData<R>,
+}
+
+impl<D, R> Iterator for UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng {
+  type Item = <D as RandomAccess>::Item;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    // TODO
+    unimplemented!();
+  }
+}
+
+impl<D, R> DataIter for UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng {
+  fn reset(&mut self) {
+    // TODO
+  }
 }
 
 pub struct LoopResetDataIter<I> where I: DataIter {
@@ -197,9 +226,9 @@ impl<I, F, V> Iterator for MapDataIter<I, F, V> where I: DataIter, F: FnMut(<I a
 }
 
 impl<I, F, V> DataIter for MapDataIter<I, F, V> where I: DataIter, F: FnMut(<I as Iterator>::Item) -> V {
-  fn reseed(&mut self, seed_rng: &mut Rng) {
+  /*fn reseed(&mut self, seed_rng: &mut Rng) {
     self.iter.reseed(seed_rng);
-  }
+  }*/
 
   fn reset(&mut self) {
     self.iter.reset();
@@ -210,7 +239,7 @@ pub struct RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
   rdup_sz:  usize,
   iter:     I,
   closed:   bool,
-  rep_ct:   usize,
+  rep_ctr:  usize,
   rep_item: Option<<I as Iterator>::Item>,
 }
 
@@ -220,7 +249,7 @@ impl<I> RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
       rdup_sz:  rdup_sz,
       iter:     iter,
       closed:   false,
-      rep_ct:   0,
+      rep_ctr:  0,
       rep_item: None,
     }
   }
@@ -235,10 +264,10 @@ impl<I> Iterator for RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item
     }
     match self.iter.next() {
       None => {
-        if self.rep_ct > 0 {
-          self.rep_ct += 1;
-          if self.rep_ct == self.rdup_sz {
-            self.rep_ct = 0;
+        if self.rep_ctr > 0 {
+          self.rep_ctr += 1;
+          if self.rep_ctr == self.rdup_sz {
+            self.rep_ctr = 0;
           }
           self.rep_item.clone().map(|item| (item, true))
         } else {
@@ -248,9 +277,9 @@ impl<I> Iterator for RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item
         }
       }
       Some(item) => {
-        self.rep_ct += 1;
-        if self.rep_ct == self.rdup_sz {
-          self.rep_ct = 0;
+        self.rep_ctr += 1;
+        if self.rep_ctr == self.rdup_sz {
+          self.rep_ctr = 0;
         }
         self.rep_item = Some(item.clone());
         Some((item, false))
@@ -260,15 +289,78 @@ impl<I> Iterator for RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item
 }
 
 impl<I> DataIter for RoundUpDataIter<I> where I: DataIter, <I as Iterator>::Item: Clone {
-  fn reseed(&mut self, seed_rng: &mut Rng) {
+  /*fn reseed(&mut self, seed_rng: &mut Rng) {
     self.iter.reseed(seed_rng);
-  }
+  }*/
 
   fn reset(&mut self) {
     self.iter.reset();
     self.closed = false;
-    self.rep_ct = 0;
+    self.rep_ctr = 0;
     self.rep_item = None;
+  }
+}
+
+pub struct BatchDataIter<I> where I: DataIter {
+  batch_sz: usize,
+  iter:     I,
+  closed:   bool,
+  cache:    Vec<<I as Iterator>::Item>,
+}
+
+impl<I> BatchDataIter<I> where I: DataIter {
+  pub fn new(iter: I, batch_sz: usize) -> Self {
+    BatchDataIter{
+      batch_sz: batch_sz,
+      iter:     iter,
+      closed:   false,
+      cache:    Vec::with_capacity(batch_sz),
+    }
+  }
+}
+
+impl<I> Iterator for BatchDataIter<I> where I: DataIter {
+  type Item = Vec<<I as Iterator>::Item>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.closed {
+      return None;
+    }
+    for _ in 0 .. self.batch_sz {
+      match self.iter.next() {
+        None => {
+          self.closed = true;
+          let mut batch = Vec::with_capacity(self.cache.len());
+          for item in self.cache.drain(..) {
+            batch.push(item);
+          }
+          return Some(batch);
+        }
+        Some(item) => {
+          self.cache.push(item);
+          if self.cache.len() == self.batch_sz {
+            let mut batch = Vec::with_capacity(self.batch_sz);
+            for item in self.cache.drain(..) {
+              batch.push(item);
+            }
+            return Some(batch);
+          }
+        }
+      }
+    }
+    unreachable!();
+  }
+}
+
+impl<I> DataIter for BatchDataIter<I> where I: DataIter {
+  /*fn reseed(&mut self, seed_rng: &mut Rng) {
+    // TODO
+  }*/
+
+  fn reset(&mut self) {
+    self.iter.reset();
+    self.closed = false;
+    self.cache.clear();
   }
 }
 
@@ -397,10 +489,10 @@ impl<Item> Iterator for AsyncJoinDataIter<Item> {
 }
 
 impl<Item> DataIter for AsyncJoinDataIter<Item> {
-  fn reseed(&mut self, seed_rng: &mut Rng) {
+  /*fn reseed(&mut self, seed_rng: &mut Rng) {
     // TODO
     unimplemented!();
-  }
+  }*/
 
   fn reset(&mut self) {
     // TODO: flush receivers.

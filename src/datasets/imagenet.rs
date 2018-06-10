@@ -1,6 +1,8 @@
 use ::*;
+
 use colorimage::*;
 use extar::*;
+use rand::*;
 use sharedmem::*;
 
 use std::collections::{HashMap};
