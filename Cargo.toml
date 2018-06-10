@@ -7,10 +7,6 @@ authors = ["Peter Jin <peterhaijin@gmail.com>"]
 name = "superdata"
 path = "src/lib.rs"
 
-[[bin]]
-name = "inspect-imagenet"
-path = "tools/inspect-imagenet.rs"
-
 [dependencies]
 colorimage = { path = "../colorimage" }
 extar = { path = "../extar" }
