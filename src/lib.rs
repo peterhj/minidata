@@ -24,7 +24,7 @@ pub trait RandomAccess {
   fn len(&self) -> usize;
   fn at(&self, idx: usize) -> Self::Item;
 
-  fn partition(&self, num_parts: usize) -> Vec<RangeData<Self>> where Self: Clone + Sized {
+  fn partitions(&self, num_parts: usize) -> Vec<RangeData<Self>> where Self: Clone + Sized {
     let total_len = self.len();
     let max_part_len = (total_len + num_parts - 1) / num_parts;
     let mut parts = vec![];
@@ -34,6 +34,14 @@ pub trait RandomAccess {
       parts.push(RangeData::new(self.clone(), part_start_idx, part_end_idx));
     }
     parts
+  }
+
+  fn partition(self, p: usize, num_parts: usize) -> RangeData<Self> where Self: Sized {
+    let total_len = self.len();
+    let max_part_len = (total_len + num_parts - 1) / num_parts;
+    let part_start_idx = p * max_part_len;
+    let part_end_idx = min(total_len, (p + 1) * max_part_len);
+    RangeData::new(self, part_start_idx, part_end_idx)
   }
 
   fn one_pass(self) -> OnePassDataSrc<Self> where Self: Sized {
