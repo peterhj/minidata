@@ -8,6 +8,7 @@ name = "superdata"
 path = "src/lib.rs"
 
 [dependencies]
+byteorder = "*"
 colorimage = { path = "../colorimage" }
 extar = { path = "../extar" }
 rand = "^0.5"

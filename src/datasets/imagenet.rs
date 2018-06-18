@@ -1,5 +1,6 @@
 use ::*;
 
+use byteorder::*;
 use colorimage::*;
 use extar::*;
 use rand::*;
@@ -7,8 +8,36 @@ use sharedmem::*;
 
 use std::collections::{HashMap};
 use std::fs::{File};
-use std::io::{BufRead, Read, BufReader, Cursor};
+use std::io::{BufRead, Read, BufReader, BufWriter, Cursor};
 use std::path::{PathBuf};
+
+pub fn load_tar_index(path: PathBuf) -> Result<Vec<(usize, usize, u32)>, ()> {
+  let file = File::open(path).unwrap();
+  let file_len = file.metadata().unwrap().len() as usize;
+  assert_eq!(0, file_len % 20);
+  let num_entries = file_len / 20;
+  let mut index = Vec::with_capacity(num_entries);
+  let mut reader = BufReader::new(file);
+  for _ in 0 .. num_entries {
+    let offset = reader.read_u64::<LittleEndian>().unwrap() as usize;
+    let size = reader.read_u64::<LittleEndian>().unwrap() as usize;
+    let label = reader.read_u32::<LittleEndian>().unwrap();
+    index.push((offset, size, label));
+  }
+  Ok(index)
+}
+
+pub fn save_tar_index(index: &[(usize, usize, u32)], path: PathBuf) -> Result<(), ()> {
+  let file = File::create(path).unwrap();
+  let mut writer = BufWriter::new(file);
+  for entry in index {
+    writer.write_u64::<LittleEndian>(entry.0 as u64).unwrap();
+    writer.write_u64::<LittleEndian>(entry.1 as u64).unwrap();
+    writer.write_u32::<LittleEndian>(entry.2).unwrap();
+  }
+  let _ = writer.into_inner().unwrap();
+  Ok(())
+}
 
 #[derive(Clone, Default, Debug)]
 pub struct ImagenetConfig {
@@ -21,7 +50,7 @@ pub struct ImagenetConfig {
 #[derive(Clone)]
 pub struct ImagenetValData {
   cfg:      ImagenetConfig,
-  labels:   Vec<u32>,
+  //labels:   Vec<u32>,
   mmap:     SharedMem<u8>,
   index:    Vec<(usize, usize, u32)>,
 }
@@ -42,15 +71,15 @@ impl ImagenetValData {
     let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
     let mut data = ImagenetValData{
       cfg:      cfg,
-      labels:   labels,
+      //labels:   labels,
       mmap:     SharedMem::new(mmap),
       index:    vec![],
     };
-    data._build_index();
+    data._build_index(&labels);
     Ok(data)
   }
 
-  pub fn _build_index(&mut self) {
+  fn _build_index(&mut self, labels: &[u32]) {
     self.index.clear();
     let cursor = Cursor::new(&self.mmap as &[u8]);
     let mut tar = BufferedTarFile::new(cursor);
@@ -58,9 +87,34 @@ impl ImagenetValData {
       let im_entry = im_entry.unwrap();
       let offset = im_entry.entry_pos as _;
       let size = im_entry.entry_sz as _;
-      let label = self.labels[idx];
+      let label = labels[idx];
       self.index.push((offset, size, label));
     }
+  }
+
+  pub fn load_index(cfg: ImagenetConfig) -> Result<Self, ()> {
+    let val_data_path = cfg.val_data.clone().unwrap();
+    assert!("tar" == val_data_path.extension().unwrap());
+    let mut val_index_path = val_data_path.clone();
+    assert!(val_index_path.set_extension("tar_index"));
+    load_tar_index(val_index_path).and_then(|index| {
+      let file = File::open(cfg.val_data.as_ref().unwrap()).unwrap();
+      let file_len = file.metadata().unwrap().len() as usize;
+      let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
+      Ok(ImagenetValData{
+        cfg:    cfg,
+        mmap:   SharedMem::new(mmap),
+        index:  index,
+      })
+    })
+  }
+
+  pub fn save_index(&self) -> Result<(), ()> {
+    let val_data_path = self.cfg.val_data.clone().unwrap();
+    assert!("tar" == val_data_path.extension().unwrap());
+    let mut val_index_path = val_data_path.clone();
+    assert!(val_index_path.set_extension("tar_index"));
+    save_tar_index(&self.index, val_index_path)
   }
 
   pub fn validate(&self) {
@@ -96,7 +150,7 @@ impl RandomAccess for ImagenetValData {
 #[derive(Clone)]
 pub struct ImagenetTrainData {
   cfg:      ImagenetConfig,
-  labels:   HashMap<String, u32>,
+  //labels:   HashMap<String, u32>,
   mmap:     SharedMem<u8>,
   index:    Vec<(usize, usize, u32)>,
 }
@@ -116,15 +170,15 @@ impl ImagenetTrainData {
     let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
     let mut data = ImagenetTrainData{
       cfg:      cfg,
-      labels:   labels,
+      //labels:   labels,
       mmap:     SharedMem::new(mmap),
       index:    vec![],
     };
-    data._build_index();
+    data._build_index(&labels);
     Ok(data)
   }
 
-  pub fn _build_index(&mut self) {
+  fn _build_index(&mut self, labels: &HashMap<String, u32>) {
     self.index.clear();
     let cursor = Cursor::new(&self.mmap as &[u8]);
     let mut tar = BufferedTarFile::new(cursor);
@@ -140,10 +194,35 @@ impl ImagenetTrainData {
         let im_wnid = im_stem_toks[0].to_owned();
         let offset = (tar_entry.entry_pos + im_entry.entry_pos) as _;
         let size = im_entry.entry_sz as _;
-        let label = *self.labels.get(&im_wnid).unwrap();
+        let label = *labels.get(&im_wnid).unwrap();
         self.index.push((offset, size, label));
       }
     }
+  }
+
+  pub fn load_index(cfg: ImagenetConfig) -> Result<Self, ()> {
+    let train_data_path = cfg.train_data.clone().unwrap();
+    assert!("tar" == train_data_path.extension().unwrap());
+    let mut train_index_path = train_data_path.clone();
+    assert!(train_index_path.set_extension("tar_index"));
+    load_tar_index(train_index_path).and_then(|index| {
+      let file = File::open(cfg.train_data.as_ref().unwrap()).unwrap();
+      let file_len = file.metadata().unwrap().len() as usize;
+      let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
+      Ok(ImagenetTrainData{
+        cfg:    cfg,
+        mmap:   SharedMem::new(mmap),
+        index:  index,
+      })
+    })
+  }
+
+  pub fn save_index(&self) -> Result<(), ()> {
+    let train_data_path = self.cfg.train_data.clone().unwrap();
+    assert!("tar" == train_data_path.extension().unwrap());
+    let mut train_index_path = train_data_path.clone();
+    assert!(train_index_path.set_extension("tar_index"));
+    save_tar_index(&self.index, train_index_path)
   }
 
   pub fn validate(&self) {

@@ -1,3 +1,4 @@
+extern crate byteorder;
 extern crate colorimage;
 extern crate extar;
 extern crate rand;
@@ -5,9 +6,9 @@ extern crate rand;
 extern crate sharedmem;
 extern crate string_cache;
 
+use rand::prelude::*;
 //use rng::*;
 
-use rand::*;
 use std::cmp::{min};
 use std::collections::{VecDeque};
 use std::marker::{PhantomData};
