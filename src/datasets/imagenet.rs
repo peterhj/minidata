@@ -3,9 +3,11 @@ use ::*;
 use byteorder::*;
 use colorimage::*;
 use extar::*;
+#[cfg(feature = "mpi")] use mpich::*;
 use rand::*;
 use sharedmem::*;
 
+use std::cmp::{min};
 use std::collections::{HashMap};
 use std::fs::{File};
 use std::io::{BufRead, Read, BufReader, BufWriter, Cursor};
@@ -37,6 +39,29 @@ pub fn save_tar_index(index: &[(usize, usize, u32)], path: PathBuf) -> Result<()
   }
   let _ = writer.into_inner().unwrap();
   Ok(())
+}
+
+pub struct ImagenetShardMPIData {
+  cfg:      ImagenetConfig,
+  mmap:     SharedMem<u8>,
+  index:    Vec<(usize, usize, u32)>,
+  window:   MPIWindow<u8>,
+}
+
+impl RandomAccess for ImagenetShardMPIData {
+  type Item = (SharedMem<u8>, u32);
+  //type Item = (Vec<u8>, u32);
+
+  fn len(&self) -> usize {
+    self.index.len()
+  }
+
+  fn at(&self, idx: usize) -> (SharedMem<u8>, u32) {
+    // TODO
+    let (offset, size, label) = self.index[idx];
+    let value = self.mmap.shared_slice(offset .. offset + size);
+    (value, label)
+  }
 }
 
 #[derive(Clone, Default, Debug)]
@@ -130,6 +155,19 @@ impl ImagenetValData {
       }
     }
     println!("DEBUG: val set: jpegs: {}", jpeg_ct);
+  }
+
+  #[cfg(feature = "mpi")]
+  pub fn shard_mpi(self) -> ImagenetShardMPIData {
+    // TODO
+    unimplemented!();
+    /*let window = unsafe { MPIWindow::new(self.mmap.as_ptr() as *mut u8, self.mmap.len(), &mut MPIComm::world()).unwrap() };
+    ImagenetShardMPIData{
+      cfg:      self.cfg,
+      mmap:     self.mmap,
+      index:    self.index,
+      window,
+    }*/
   }
 }
 
@@ -244,6 +282,35 @@ impl ImagenetTrainData {
       }
     }
     println!("DEBUG: train set: jpegs: {}", jpeg_ct);
+  }
+
+  #[cfg(feature = "mpi")]
+  pub fn shard_mpi(self) -> ImagenetShardMPIData {
+    // TODO
+    unimplemented!();
+    /*let rank = MPIComm::world().rank() as usize;
+    let nranks = MPIComm::world().num_ranks() as usize;
+    let rdup_shard_len = (self.len() + rank - 1) / nranks;
+    let shard_off = rank * rdup_shard_len;
+    let shard_len = min(self.len(), (rank + 1) * rdup_shard_len) - shard_off;
+    let data_start = self.index[shard_off].0;
+    let data_end = self.index[shard_off + shard_len - 1].0 + self.index[shard_off + shard_len - 1].1;
+    assert!(data_start <= data_end);
+    let data_len = data_end - data_start;
+    /*let file = File::open(self.cfg.train_data.as_ref().unwrap()).unwrap();
+    let file_len = file.metadata().unwrap().len() as usize;
+    let mmap = MemoryMap::open_with_offset(file, data_start, data_len).unwrap();*/
+    //let window = unsafe { MPIWindow::new(self.mmap.as_ptr() as *mut u8, self.mmap.len(), &mut MPIComm::world()).unwrap() };
+    let window = unsafe { MPIWindow::new(
+        self.mmap.as_ptr().offset(data_start as _) as *mut u8,
+        data_len,
+        &mut MPIComm::world()).unwrap() };
+    ImagenetShardMPIData{
+      cfg:      self.cfg,
+      mmap:     self.mmap,
+      index:    self.index,
+      window,
+    }*/
   }
 }
 

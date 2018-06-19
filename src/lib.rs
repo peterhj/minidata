@@ -1,12 +1,14 @@
 extern crate byteorder;
 extern crate colorimage;
 extern crate extar;
+#[cfg(feature = "mpi")] extern crate mpich;
 extern crate rand;
 //extern crate rng;
 extern crate sharedmem;
 extern crate string_cache;
 
 use rand::prelude::*;
+use rand::distributions::*;
 //use rng::*;
 
 use std::cmp::{min};
@@ -56,8 +58,7 @@ pub trait RandomSample<R: Rng>: RandomAccess {
   }
 
   fn uniform_random(self, seed_rng: &mut R) -> UniformRandomDataSrc<Self, R> where Self: Sized {
-    // TODO
-    unimplemented!();
+    UniformRandomDataSrc::new(self, seed_rng)
   }
 }
 
@@ -164,15 +165,29 @@ pub struct UniformShuffleDataSrc<D, R> where D: RandomAccess, R: Rng {
 pub struct UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng {
   //rng:      Xorshiftplus128Rng,
   data:     D,
+  dist:     Uniform<usize>,
   _mrk:     PhantomData<R>,
+}
+
+impl<D, R> UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng {
+  pub fn new(data: D, seed_rng: &mut R) -> Self {
+    // TODO: use the seed RNG.
+    let dist = Uniform::new(0, data.len());
+    UniformRandomDataSrc{
+      data:     data,
+      dist:     dist,
+      _mrk:     PhantomData,
+    }
+  }
 }
 
 impl<D, R> Iterator for UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng {
   type Item = <D as RandomAccess>::Item;
 
   fn next(&mut self) -> Option<Self::Item> {
-    // TODO
-    unimplemented!();
+    // TODO: use locally seeded RNG.
+    let idx = self.dist.sample(&mut thread_rng());
+    Some(self.data.at(idx))
   }
 }
 
