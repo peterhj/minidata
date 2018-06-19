@@ -69,7 +69,7 @@ pub trait DataIter: Iterator {
   /*fn reseed(&mut self, seed_rng: &mut Rng) { unimplemented!(); }*/
   fn reset(&mut self);
 
-  fn loop_reset(self) -> LoopResetDataIter<Self> where Self: Sized {
+  fn loop_reset_data(self) -> LoopResetDataIter<Self> where Self: Sized {
     LoopResetDataIter::new(self)
   }
 
@@ -83,6 +83,10 @@ pub trait DataIter: Iterator {
 
   fn batch_data(self, batch_sz: usize) -> BatchDataIter<Self> where Self: Sized {
     BatchDataIter::new(self, batch_sz)
+  }
+
+  fn async_prefetch_data(self, capacity: usize) -> AsyncPrefetchDataIter<<Self as Iterator>::Item> where Self: Sized + Send + 'static, <Self as Iterator>::Item: Send {
+    async_prefetch_data(capacity, self)
   }
 }
 
@@ -396,6 +400,7 @@ enum AsyncWorkerMsg<Item> {
 enum AsyncCtrlMsg {
   Reset,
   Reseed,
+  Stop,
 }
 
 struct AsyncWorkerState<I> where I: Iterator {
@@ -418,7 +423,10 @@ impl<I> AsyncWorkerState<I> where I: Iterator {
               self.closed = false;
               continue;
             }
-            _ => {}
+            _ => {
+              // TODO
+              unimplemented!();
+            }
           },
         }
       }
@@ -452,33 +460,52 @@ impl<I> AsyncWorkerState<I> where I: Iterator {
   }
 }
 
-pub fn async_join_data<F, I>(num_workers: usize, f: F) -> AsyncJoinDataIter<<I as Iterator>::Item> where F: Fn(usize) -> I, I: DataIter {
+pub fn async_join_data<F, I>(num_workers: usize, f: F) -> AsyncJoinDataIter<<I as Iterator>::Item>
+where F: Fn(usize) -> I,
+      I: DataIter + Send + 'static,
+      <I as Iterator>::Item: Send + 'static,
+{
   let mut rclosed = vec![];
   let mut w_rxs = vec![];
   let mut c_txs = vec![];
+  let mut w_hs = vec![];
   for rank in 0 .. num_workers {
     let (w_tx, w_rx) = channel();
     let (c_tx, c_rx) = channel();
-    // TODO
+    let iter = f(rank);
+    let w_h = thread::spawn(move || {
+      let mut state = AsyncWorkerState{
+        closed: false,
+        iter:   iter,
+        w_tx:   w_tx,
+        c_rx:   c_rx,
+      };
+      state.runloop();
+    });
     rclosed.push(false);
     w_rxs.push(w_rx);
     c_txs.push(c_tx);
+    w_hs.push(w_h);
   }
   AsyncJoinDataIter{
+    ctr:        0,
     nworkers:   num_workers,
     nclosed:    0,
     rclosed:    rclosed,
     w_rxs:      w_rxs,
     c_txs:      c_txs,
+    w_hs:       w_hs,
   }
 }
 
 pub struct AsyncJoinDataIter<Item> {
+  ctr:      usize,
   nworkers: usize,
   nclosed:  usize,
   rclosed:  Vec<bool>,
   w_rxs:    Vec<Receiver<AsyncWorkerMsg<Item>>>,
   c_txs:    Vec<Sender<AsyncCtrlMsg>>,
+  w_hs:     Vec<thread::JoinHandle<()>>,
 }
 
 impl<Item> Iterator for AsyncJoinDataIter<Item> {
@@ -486,7 +513,9 @@ impl<Item> Iterator for AsyncJoinDataIter<Item> {
 
   fn next(&mut self) -> Option<Item> {
     while self.nworkers > self.nclosed {
-      let rank = 0; // TODO: sample uniformly? or round robin?
+      // TODO: sample uniformly? or round robin?
+      let rank = self.ctr % self.nworkers;
+      self.ctr += 1;
       if self.rclosed[rank] {
         continue;
       }
@@ -526,17 +555,19 @@ impl<Item> DataIter for AsyncJoinDataIter<Item> {
   }
 }
 
-pub fn async_prefetch_data<I>(capacity: usize, iter: I) -> AsyncPrefetchDataIter<<I as Iterator>::Item> where I: DataIter + Send + 'static, <I as Iterator>::Item: Send {
+pub fn async_prefetch_data<I>(capacity: usize, iter: I) -> AsyncPrefetchDataIter<<I as Iterator>::Item>
+where I: DataIter + Send + 'static,
+      <I as Iterator>::Item: Send,
+{
   let (w_tx, w_rx) = channel();
   let (c_tx, c_rx) = channel();
-  let mut state = AsyncWorkerState{
-    closed: false,
-    iter:   iter,
-    w_tx:   w_tx,
-    c_rx:   c_rx,
-  };
-  // TODO: keep thread handle to join.
-  let _ = thread::spawn(move || {
+  let w_h = thread::spawn(move || {
+    let mut state = AsyncWorkerState{
+      closed: false,
+      iter:   iter,
+      w_tx:   w_tx,
+      c_rx:   c_rx,
+    };
     state.runloop();
   });
   AsyncPrefetchDataIter{
@@ -545,6 +576,7 @@ pub fn async_prefetch_data<I>(capacity: usize, iter: I) -> AsyncPrefetchDataIter
     queue:  VecDeque::with_capacity(capacity),
     w_rx:   w_rx,
     c_tx:   c_tx,
+    w_h:    w_h,
   }
 }
 
@@ -554,6 +586,7 @@ pub struct AsyncPrefetchDataIter<Item> {
   queue:    VecDeque<Option<Item>>,
   w_rx:     Receiver<AsyncWorkerMsg<Item>>,
   c_tx:     Sender<AsyncCtrlMsg>,
+  w_h:      thread::JoinHandle<()>,
 }
 
 impl<Item> Iterator for AsyncPrefetchDataIter<Item> {
