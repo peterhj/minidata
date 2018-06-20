@@ -41,13 +41,15 @@ pub fn save_tar_index(index: &[(usize, usize, u32)], path: PathBuf) -> Result<()
   Ok(())
 }
 
+#[cfg(feature = "mpi")]
 pub struct ImagenetShardMPIData {
   cfg:      ImagenetConfig,
   mmap:     SharedMem<u8>,
   index:    Vec<(usize, usize, u32)>,
-  window:   MPIWindow<u8>,
+  //window:   MPIWindow<u8>,
 }
 
+#[cfg(feature = "mpi")]
 impl RandomAccess for ImagenetShardMPIData {
   type Item = (SharedMem<u8>, u32);
   //type Item = (Vec<u8>, u32);
