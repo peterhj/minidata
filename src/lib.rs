@@ -6,6 +6,7 @@ extern crate rand;
 //extern crate rng;
 extern crate sharedmem;
 extern crate string_cache;
+extern crate time;
 
 use rand::prelude::*;
 use rand::distributions::*;
@@ -14,11 +15,13 @@ use rand::distributions::*;
 use std::cmp::{min};
 use std::collections::{VecDeque};
 use std::marker::{PhantomData};
+use std::sync::{Arc};
 use std::sync::mpsc::*;
 use std::thread;
 
 pub mod datasets;
 pub mod image;
+pub mod utils;
 
 pub trait RandomAccess {
   type Item;
@@ -460,8 +463,172 @@ impl<I> AsyncWorkerState<I> where I: Iterator {
   }
 }
 
-pub fn async_join_data<F, I>(num_workers: usize, f: F) -> AsyncJoinDataIter<<I as Iterator>::Item>
-where F: Fn(usize) -> I,
+struct AsyncSplitWorkerState<I> where I: Iterator {
+  nworkers: usize,
+  closed:   bool,
+  ctr:      usize,
+  iter:     I,
+  w_txs:    Vec<Sender<AsyncWorkerMsg<<I as Iterator>::Item>>>,
+  c_rxs:    Vec<Receiver<AsyncCtrlMsg>>,
+}
+
+impl<I> AsyncSplitWorkerState<I> where I: Iterator {
+  fn runloop(&mut self) {
+    loop {
+      if self.closed {
+        // TODO
+        break;
+        /*match self.c_rx.recv() {
+          Err(_) => {
+            break;
+          }
+          Ok(cmsg) => match cmsg {
+            AsyncCtrlMsg::Reset => {
+              self.closed = false;
+              continue;
+            }
+            _ => {
+              // TODO
+              unimplemented!();
+            }
+          },
+        }*/
+      }
+      /*match self.c_rx.try_recv() {
+        Err(TryRecvError::Empty) => {}
+        Err(_) => {
+          self.closed = true;
+          continue;
+        }
+        Ok(cmsg) => match cmsg {
+          AsyncCtrlMsg::Reset => {
+            self.closed = false;
+            continue;
+          }
+          _ => {
+            // TODO
+            unimplemented!();
+          }
+        }
+      }*/
+      let idx = self.ctr;
+      let rank = idx % self.nworkers;
+      match self.iter.next() {
+        None => {
+          self.closed = true;
+          for offset in 0 .. self.nworkers {
+            self.w_txs[(rank + offset) % self.nworkers].send(AsyncWorkerMsg::Closed).unwrap();
+          }
+        }
+        Some(item) => {
+          self.w_txs[rank].send(AsyncWorkerMsg::Next(item)).unwrap();
+          self.ctr += 1;
+        }
+      }
+    }
+  }
+}
+
+pub fn async_split_data<F, I>(num_workers: usize, f: F) -> Vec<AsyncSplitDataIter<<I as Iterator>::Item>>
+where F: FnOnce() -> I,
+      I: DataIter + Send + 'static,
+      <I as Iterator>::Item: Send + 'static,
+{
+  let mut splits = Vec::with_capacity(num_workers);
+  let mut w_txs = Vec::with_capacity(num_workers);
+  let mut c_rxs = Vec::with_capacity(num_workers);
+  let mut w_rx_c_tx_s = Vec::with_capacity(num_workers);
+  for rank in 0 .. num_workers {
+    let (w_tx, w_rx) = channel();
+    let (c_tx, c_rx) = channel();
+    w_txs.push(w_tx);
+    c_rxs.push(c_rx);
+    w_rx_c_tx_s.push((w_rx, c_tx));
+  }
+  let iter = f();
+  let h = thread::spawn(move || {
+    let mut state = AsyncSplitWorkerState{
+      nworkers: num_workers,
+      closed:   false,
+      ctr:      0,
+      iter:     iter,
+      w_txs:    w_txs,
+      c_rxs:    c_rxs,
+    };
+    state.runloop();
+  });
+  let drop_h = Arc::new(DropJoinHandle{handle: Some(h)});
+  for (rank, (w_rx, c_tx)) in w_rx_c_tx_s.drain(..).enumerate() {
+    let split = AsyncSplitDataIter{
+      rank:     rank,
+      closed:   false,
+      w_rx:     w_rx,
+      c_tx:     c_tx,
+      w_h:      drop_h.clone(),
+    };
+    splits.push(split);
+  }
+  splits
+}
+
+struct DropJoinHandle {
+  handle:   Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for DropJoinHandle {
+  fn drop(&mut self) {
+    assert!(self.handle.take().unwrap().join().is_ok());
+  }
+}
+
+pub struct AsyncSplitDataIter<Item> {
+  rank:     usize,
+  closed:   bool,
+  //ctr:      usize,
+  w_rx:     Receiver<AsyncWorkerMsg<Item>>,
+  c_tx:     Sender<AsyncCtrlMsg>,
+  //w_hs:     Vec<thread::JoinHandle<()>>,
+  w_h:      Arc<DropJoinHandle>,
+}
+
+impl<Item> Iterator for AsyncSplitDataIter<Item> {
+  type Item = Item;
+
+  fn next(&mut self) -> Option<Item> {
+    if self.closed {
+      return None;
+    }
+    match self.w_rx.recv() {
+      Err(_) => {
+        self.closed = true;
+        return None;
+      }
+      Ok(msg) => match msg {
+        AsyncWorkerMsg::Closed => {
+          self.closed = true;
+          return None;
+        }
+        AsyncWorkerMsg::Next(item) => {
+          return Some(item);
+        }
+      },
+    }
+  }
+}
+
+impl<Item> DataIter for AsyncSplitDataIter<Item> {
+  /*fn reseed(&mut self, seed_rng: &mut Rng) {
+    // TODO
+    unimplemented!();
+  }*/
+
+  fn reset(&mut self) {
+    // TODO
+  }
+}
+
+pub fn async_join_data<F, I>(num_workers: usize, mut f: F) -> AsyncJoinDataIter<<I as Iterator>::Item>
+where F: FnMut(usize) -> I,
       I: DataIter + Send + 'static,
       <I as Iterator>::Item: Send + 'static,
 {

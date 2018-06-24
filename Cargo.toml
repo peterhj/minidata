@@ -18,3 +18,4 @@ mpich = { path = "../libmpich", optional = true }
 rand = "^0.5"
 sharedmem = { path = "../sharedmem" }
 string_cache = "*"
+time = "*"
