@@ -29,24 +29,24 @@ pub trait RandomAccess {
   fn len(&self) -> usize;
   fn at(&self, idx: usize) -> Self::Item;
 
-  fn partitions(&self, num_parts: usize) -> Vec<RangeData<Self>> where Self: Clone + Sized {
+  fn range_shards(&self, num_shards: usize) -> Vec<RangeData<Self>> where Self: Clone + Sized {
     let total_len = self.len();
-    let max_part_len = (total_len + num_parts - 1) / num_parts;
-    let mut parts = vec![];
-    for p in 0 .. num_parts {
-      let part_start_idx = p * max_part_len;
-      let part_end_idx = min(total_len, (p + 1) * max_part_len);
-      parts.push(RangeData::new(self.clone(), part_start_idx, part_end_idx));
+    let max_shard_len = (total_len + num_shards - 1) / num_shards;
+    let mut shards = vec![];
+    for p in 0 .. num_shards {
+      let shard_start_idx = p * max_shard_len;
+      let shard_end_idx = min(total_len, (p + 1) * max_shard_len);
+      shards.push(RangeData::new(self.clone(), shard_start_idx, shard_end_idx));
     }
-    parts
+    shards
   }
 
-  fn partition(self, p: usize, num_parts: usize) -> RangeData<Self> where Self: Sized {
+  fn range_shard(self, p: usize, num_shards: usize) -> RangeData<Self> where Self: Sized {
     let total_len = self.len();
-    let max_part_len = (total_len + num_parts - 1) / num_parts;
-    let part_start_idx = p * max_part_len;
-    let part_end_idx = min(total_len, (p + 1) * max_part_len);
-    RangeData::new(self, part_start_idx, part_end_idx)
+    let max_shard_len = (total_len + num_shards - 1) / num_shards;
+    let shard_start_idx = p * max_shard_len;
+    let shard_end_idx = min(total_len, (p + 1) * max_shard_len);
+    RangeData::new(self, shard_start_idx, shard_end_idx)
   }
 
   fn one_pass(self) -> OnePassDataSrc<Self> where Self: Sized {
