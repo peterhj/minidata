@@ -14,7 +14,7 @@ pub fn inception_crop_resize<R: Rng>(target_w: usize, target_h: usize, image: &m
   let mut new_w = 0;
   let mut new_h = 0;
   loop {
-    let area = (area_dist.sample(rng) * (old_w * old_h) as f64).min(1.0);
+    let area = (area_dist.sample(rng) * (old_w * old_h) as f64).max(1.0);
     let aspect = aspect_dist.sample(rng);
     match rotate_dist.sample(rng) {
       false => {
@@ -25,8 +25,9 @@ pub fn inception_crop_resize<R: Rng>(target_w: usize, target_h: usize, image: &m
         new_w = (area * aspect).sqrt().round() as usize;
         new_h = (area / aspect).sqrt().round() as usize;
       }
-    };
-    if new_w >= 1 && old_w >= 1 {
+    }
+    if new_w >= 1 && new_h >= 1 {
+    //if new_w >= 1 && new_w <= old_w && new_h >= 1 && new_h <= old_h {
       break;
     }
   }
