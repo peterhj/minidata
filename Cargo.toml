@@ -5,6 +5,7 @@ authors = ["Peter Jin <peterhaijin@gmail.com>"]
 
 [features]
 mpi = ["mpich"]
+shmem = ["cray_shmem"]
 
 [lib]
 name = "superdata"
@@ -13,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 byteorder = "*"
 colorimage = { path = "../colorimage" }
+cray_shmem = { path = "../cray_shmem", optional = true }
 extar = { path = "../extar" }
 mpich = { path = "../libmpich", optional = true }
 rand = "^0.5"

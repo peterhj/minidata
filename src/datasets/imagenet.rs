@@ -2,12 +2,13 @@ use ::*;
 
 use byteorder::*;
 use colorimage::*;
+#[cfg(feature = "shmem")] use cray_shmem::*;
 use extar::*;
 #[cfg(feature = "mpi")] use mpich::*;
 use rand::*;
 use sharedmem::*;
 
-use std::cmp::{min};
+use std::cmp::{max, min};
 use std::collections::{HashMap};
 use std::fs::{File};
 use std::io::{BufRead, Read, BufReader, BufWriter, Cursor};
@@ -41,7 +42,95 @@ pub fn save_tar_index(index: &[(usize, usize, u32)], path: PathBuf) -> Result<()
   Ok(())
 }
 
-#[cfg(feature = "mpi")]
+#[cfg(feature = "shmem")]
+pub struct ImagenetShmemShardData {
+  cfg:      ImagenetConfig,
+  index:    Vec<(usize, usize, u32)>,
+  rank:     i32,
+  nranks:   i32,
+  splits:   Vec<(usize, usize)>,
+  mem:      ShmemHeapMem,
+}
+
+#[cfg(feature = "shmem")]
+impl ImagenetShmemShardData {
+  fn new(cfg: ImagenetConfig, index: Vec<(usize, usize, u32)>, mmap: &SharedMem<u8>) -> Self {
+    let nranks = Shmem::num_ranks();
+    let total_len = index.len();
+    let max_shard_len = (total_len + nranks as usize - 1) / nranks as usize;
+    let mut splits: Vec<(usize, usize)> = Vec::with_capacity(nranks as usize);
+    let mut max_shard_mem_sz = 0;
+    for r in 0 .. nranks as usize {
+      let start_idx = r * max_shard_len;
+      let end_idx = min(total_len, (r + 1) * max_shard_len);
+      let req_shard_mem_sz = index[end_idx - 1].0 + index[end_idx - 1].1 - index[start_idx].0;
+      splits.push((start_idx, end_idx - start_idx));
+      max_shard_mem_sz = max(max_shard_mem_sz, req_shard_mem_sz);
+    }
+    let block_sz = 1024 * 1024;
+    let rdup_shard_mem_sz = (max_shard_mem_sz + block_sz - 1) / block_sz * block_sz;
+    let mut mem = unsafe { ShmemHeapMem::alloc(rdup_shard_mem_sz) };
+    let num_blocks = rdup_shard_mem_sz / block_sz;
+    assert_eq!(0, rdup_shard_mem_sz % block_sz);
+    // TODO: copy memory from the mmap to the symmetric heap.
+    let priv_rank = Shmem::rank();
+    let priv_start_idx = splits[priv_rank as usize].0;
+    let priv_end_idx = splits[priv_rank as usize].0 + splits[priv_rank as usize].1;
+    let priv_mmap_pos = index[priv_start_idx].0;
+    let priv_mmap_sz = index[priv_end_idx - 1].0 + index[priv_end_idx - 1].1 - priv_mmap_pos;
+    for blk in 0 .. num_blocks {
+      let start_pos = blk * block_sz;
+      let end_pos = min(priv_mmap_sz, (blk + 1) * block_sz);
+      mem.put_mem(priv_rank, start_pos, &*mmap.shared_slice(priv_mmap_pos + start_pos .. priv_mmap_pos + end_pos));
+    }
+    ImagenetShmemShardData{
+      cfg:      cfg,
+      index:    index,
+      rank:     priv_rank,
+      nranks:   nranks,
+      splits:   splits,
+      mem:      mem,
+    }
+  }
+
+  fn _find_split(&self, idx: usize) -> (i32, usize, usize) {
+    // TODO
+    for (rank, &(offset, len)) in self.splits.iter().enumerate() {
+      if idx >= offset && idx < offset + len {
+        return (rank as _, offset, idx - offset);
+      }
+    }
+    unreachable!();
+  }
+
+  fn _get(&mut self, idx: usize) -> (Vec<u8>, u32) {
+    let (src_rank, src_index_offset, _) = self._find_split(idx);
+    assert!(src_rank >= 0);
+    assert!(src_rank < self.nranks);
+    let src_entry = self.index[idx];
+    let src_mem_offset = src_entry.0 - self.index[src_index_offset].0;
+    let src_mem_size = src_entry.1;
+    let label = src_entry.2;
+    let mut value = Vec::with_capacity(src_mem_size);
+    self.mem.get_mem(src_rank, src_mem_offset, &mut value);
+    (value, label)
+  }
+}
+
+#[cfg(feature = "shmem")]
+impl RandomAccess for ImagenetShmemShardData {
+  type Item = (Vec<u8>, u32);
+
+  fn len(&self) -> usize {
+    self.index.len()
+  }
+
+  fn at(&mut self, idx: usize) -> (Vec<u8>, u32) {
+    self._get(idx)
+  }
+}
+
+/*#[cfg(feature = "mpi")]
 pub struct ImagenetShardMPIData {
   cfg:      ImagenetConfig,
   mmap:     SharedMem<u8>,
@@ -64,7 +153,7 @@ impl RandomAccess for ImagenetShardMPIData {
     let value = self.mmap.shared_slice(offset .. offset + size);
     (value, label)
   }
-}
+}*/
 
 #[derive(Clone, Default, Debug)]
 pub struct ImagenetConfig {
@@ -159,7 +248,7 @@ impl ImagenetValData {
     println!("DEBUG: val set: jpegs: {}", jpeg_ct);
   }
 
-  #[cfg(feature = "mpi")]
+  /*#[cfg(feature = "mpi")]
   pub fn shard_mpi(self) -> ImagenetShardMPIData {
     // TODO
     unimplemented!();
@@ -170,7 +259,7 @@ impl ImagenetValData {
       index:    self.index,
       window,
     }*/
-  }
+  }*/
 }
 
 impl RandomAccess for ImagenetValData {
@@ -180,7 +269,7 @@ impl RandomAccess for ImagenetValData {
     self.index.len()
   }
 
-  fn at(&self, idx: usize) -> (SharedMem<u8>, u32) {
+  fn at(&mut self, idx: usize) -> (SharedMem<u8>, u32) {
     let (offset, size, label) = self.index[idx];
     let value = self.mmap.shared_slice(offset .. offset + size);
     (value, label)
@@ -286,7 +375,7 @@ impl ImagenetTrainData {
     println!("DEBUG: train set: jpegs: {}", jpeg_ct);
   }
 
-  #[cfg(feature = "mpi")]
+  /*#[cfg(feature = "mpi")]
   pub fn shard_mpi(self) -> ImagenetShardMPIData {
     // TODO
     unimplemented!();
@@ -313,7 +402,7 @@ impl ImagenetTrainData {
       index:    self.index,
       window,
     }*/
-  }
+  }*/
 }
 
 impl RandomAccess for ImagenetTrainData {
@@ -323,7 +412,7 @@ impl RandomAccess for ImagenetTrainData {
     self.index.len()
   }
 
-  fn at(&self, idx: usize) -> (SharedMem<u8>, u32) {
+  fn at(&mut self, idx: usize) -> (SharedMem<u8>, u32) {
     let (offset, size, label) = self.index[idx];
     let value = self.mmap.shared_slice(offset .. offset + size);
     (value, label)

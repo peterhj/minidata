@@ -1,5 +1,6 @@
 extern crate byteorder;
 extern crate colorimage;
+#[cfg(feature = "shmem")] extern crate cray_shmem;
 extern crate extar;
 #[cfg(feature = "mpi")] extern crate mpich;
 extern crate rand;
@@ -27,7 +28,7 @@ pub trait RandomAccess {
   type Item;
 
   fn len(&self) -> usize;
-  fn at(&self, idx: usize) -> Self::Item;
+  fn at(&mut self, idx: usize) -> Self::Item;
 
   fn range_shards(&self, num_shards: usize) -> Vec<RangeData<Self>> where Self: Clone + Sized {
     let total_len = self.len();
@@ -119,7 +120,7 @@ impl<D> RandomAccess for RangeData<D> where D: RandomAccess {
     self.len
   }
 
-  fn at(&self, idx: usize) -> Self::Item {
+  fn at(&mut self, idx: usize) -> Self::Item {
     assert!(idx < self.len);
     self.data.at(self.offset + idx)
   }

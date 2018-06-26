@@ -59,7 +59,7 @@ impl RandomAccess for Cifar10Data {
     self.num
   }
 
-  fn at(&self, idx: usize) -> (SharedMem<u8>, u32) {
+  fn at(&mut self, idx: usize) -> (SharedMem<u8>, u32) {
     assert!(idx < self.num);
     let offset = idx * self.esz;
     let size = self.esz;
