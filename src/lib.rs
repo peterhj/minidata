@@ -1,6 +1,6 @@
 extern crate byteorder;
 extern crate colorimage;
-#[cfg(feature = "shmem")] extern crate cray_shmem;
+//#[cfg(feature = "shmem")] extern crate cray_shmem;
 extern crate extar;
 #[cfg(feature = "mpi")] extern crate mpich;
 extern crate rand;

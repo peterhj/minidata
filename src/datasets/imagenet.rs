@@ -2,7 +2,7 @@ use ::*;
 
 use byteorder::*;
 use colorimage::*;
-#[cfg(feature = "shmem")] use cray_shmem::*;
+//#[cfg(feature = "shmem")] use cray_shmem::*;
 use extar::*;
 #[cfg(feature = "mpi")] use mpich::*;
 use rand::*;
@@ -42,7 +42,114 @@ pub fn save_tar_index(index: &[(usize, usize, u32)], path: PathBuf) -> Result<()
   Ok(())
 }
 
-#[cfg(feature = "shmem")]
+struct ScatterSplit {
+  index_offset: usize,
+  index_len:    usize,
+  mem_dist_off: usize,
+  mem_occ_sz:   usize,
+}
+
+#[cfg(feature = "mpi")]
+pub struct ImagenetMPIRMAScatterData {
+  cfg:      ImagenetConfig,
+  index:    Vec<(usize, usize, u32)>,
+  rank:     i32,
+  nranks:   i32,
+  block_sz: usize,
+  nblocks:  usize,
+  splits:   Vec<ScatterSplit>,
+  mems:     Vec<MPIMem>,
+  rma_wins: Vec<MPIRMAWin<u8>>,
+}
+
+#[cfg(feature = "mpi")]
+impl ImagenetMPIRMAScatterData {
+  fn new(cfg: ImagenetConfig, index: Vec<(usize, usize, u32)>, mmap: &SharedMem<u8>) -> Self {
+    let nranks = MPIComm::world().num_ranks() as usize;
+    let total_len = index.len();
+    let max_shard_len = (total_len + nranks - 1) / nranks;
+    let mut splits = Vec::with_capacity(nranks);
+    let mut max_shard_mem_sz = 0;
+    for r in 0 .. nranks {
+      let start_idx = r * max_shard_len;
+      let end_idx = min(total_len, (r + 1) * max_shard_len);
+      let shard_mem_off = index[start_idx].0;
+      let req_shard_mem_sz = index[end_idx - 1].0 + index[end_idx - 1].1 - index[start_idx].0;
+      let split = ScatterSplit{
+        index_offset:   start_idx,
+        index_len:      end_idx - start_idx,
+        mem_dist_off:   shard_mem_off,
+        mem_occ_sz:     req_shard_mem_sz,
+      };
+      splits.push(split);
+      max_shard_mem_sz = max(max_shard_mem_sz, req_shard_mem_sz);
+    }
+
+    let block_sz = 2 * 1024 * 1024;
+    let rdup_shard_mem_sz = (max_shard_mem_sz + block_sz - 1) / block_sz * block_sz;
+    let num_blocks = rdup_shard_mem_sz / block_sz;
+    assert_eq!(0, rdup_shard_mem_sz % block_sz);
+    println!("DEBUG: ImagenetMPIRMAScatterData: block sz: {} num blocks: {} rdup shard sz: {}",
+        block_sz,
+        num_blocks,
+        rdup_shard_mem_sz);
+
+    let mut mems = Vec::with_capacity(num_blocks);
+    let mut rma_wins = Vec::with_capacity(num_blocks);
+    for _ in 0 .. num_blocks {
+      let mem = unsafe { MPIMem::alloc(block_sz) };
+      let rma_win = match unsafe { MPIRMAWin::new(mem.as_mut_ptr(), mem.size_bytes(), &mut MPIComm::world()) } {
+        Err(e) => panic!("failed to create rma win: {:?}", e),
+        Ok(win) => win,
+      };
+      mems.push(mem);
+      rma_wins.push(rma_win);
+    }
+
+    let rank = MPIComm::world().rank() as usize;
+    let mut zero_block_buf = Vec::with_capacity(block_sz);
+    for k in 0 .. block_sz {
+      zero_block_buf[k] = 0;
+    }
+    for blk in 0 .. num_blocks {
+      let local_start_pos = blk * block_sz;
+      let local_end_pos = min(splits[rank].mem_occ_sz, (blk + 1) * block_sz);
+      let rma_win = rma_wins[blk].lock();
+      if local_start_pos < local_end_pos {
+        let shared_start_pos = splits[rank].mem_dist_off + local_start_pos;
+        let shared_end_pos = splits[rank].mem_dist_off + local_end_pos;
+        let shared_buf = mmap.shared_slice(shared_start_pos .. shared_end_pos);
+        rma_win.put_mem(
+            &*shared_buf,
+            rank as _,
+            0,
+            local_end_pos - local_start_pos);
+      }
+      if local_end_pos < local_start_pos + block_sz {
+        let end_pos = max(local_start_pos, local_end_pos) - local_start_pos;
+        rma_win.put_mem(
+            &zero_block_buf[end_pos .. ],
+            rank as _,
+            end_pos,
+            block_sz - end_pos);
+      }
+    }
+
+    ImagenetMPIRMAScatterData{
+      cfg:      cfg,
+      index:    index,
+      rank:     MPIComm::world().rank(),
+      nranks:   MPIComm::world().num_ranks(),
+      block_sz: block_sz,
+      nblocks:  num_blocks,
+      splits:   splits,
+      mems:     mems,
+      rma_wins: rma_wins,
+    }
+  }
+}
+
+/*#[cfg(feature = "shmem")]
 pub struct ImagenetShmemShardData {
   cfg:      ImagenetConfig,
   index:    Vec<(usize, usize, u32)>,
@@ -127,31 +234,6 @@ impl RandomAccess for ImagenetShmemShardData {
 
   fn at(&mut self, idx: usize) -> (Vec<u8>, u32) {
     self._get(idx)
-  }
-}
-
-/*#[cfg(feature = "mpi")]
-pub struct ImagenetShardMPIData {
-  cfg:      ImagenetConfig,
-  mmap:     SharedMem<u8>,
-  index:    Vec<(usize, usize, u32)>,
-  //window:   MPIWindow<u8>,
-}
-
-#[cfg(feature = "mpi")]
-impl RandomAccess for ImagenetShardMPIData {
-  type Item = (SharedMem<u8>, u32);
-  //type Item = (Vec<u8>, u32);
-
-  fn len(&self) -> usize {
-    self.index.len()
-  }
-
-  fn at(&self, idx: usize) -> (SharedMem<u8>, u32) {
-    // TODO
-    let (offset, size, label) = self.index[idx];
-    let value = self.mmap.shared_slice(offset .. offset + size);
-    (value, label)
   }
 }*/
 
@@ -248,18 +330,10 @@ impl ImagenetValData {
     println!("DEBUG: val set: jpegs: {}", jpeg_ct);
   }
 
-  /*#[cfg(feature = "mpi")]
-  pub fn shard_mpi(self) -> ImagenetShardMPIData {
-    // TODO
-    unimplemented!();
-    /*let window = unsafe { MPIWindow::new(self.mmap.as_ptr() as *mut u8, self.mmap.len(), &mut MPIComm::world()).unwrap() };
-    ImagenetShardMPIData{
-      cfg:      self.cfg,
-      mmap:     self.mmap,
-      index:    self.index,
-      window,
-    }*/
-  }*/
+  #[cfg(feature = "mpi")]
+  pub fn scatter_mpi_rma(self) -> ImagenetMPIRMAScatterData {
+    ImagenetMPIRMAScatterData::new(self.cfg, self.index, &self.mmap)
+  }
 }
 
 impl RandomAccess for ImagenetValData {
@@ -375,34 +449,10 @@ impl ImagenetTrainData {
     println!("DEBUG: train set: jpegs: {}", jpeg_ct);
   }
 
-  /*#[cfg(feature = "mpi")]
-  pub fn shard_mpi(self) -> ImagenetShardMPIData {
-    // TODO
-    unimplemented!();
-    /*let rank = MPIComm::world().rank() as usize;
-    let nranks = MPIComm::world().num_ranks() as usize;
-    let rdup_shard_len = (self.len() + rank - 1) / nranks;
-    let shard_off = rank * rdup_shard_len;
-    let shard_len = min(self.len(), (rank + 1) * rdup_shard_len) - shard_off;
-    let data_start = self.index[shard_off].0;
-    let data_end = self.index[shard_off + shard_len - 1].0 + self.index[shard_off + shard_len - 1].1;
-    assert!(data_start <= data_end);
-    let data_len = data_end - data_start;
-    /*let file = File::open(self.cfg.train_data.as_ref().unwrap()).unwrap();
-    let file_len = file.metadata().unwrap().len() as usize;
-    let mmap = MemoryMap::open_with_offset(file, data_start, data_len).unwrap();*/
-    //let window = unsafe { MPIWindow::new(self.mmap.as_ptr() as *mut u8, self.mmap.len(), &mut MPIComm::world()).unwrap() };
-    let window = unsafe { MPIWindow::new(
-        self.mmap.as_ptr().offset(data_start as _) as *mut u8,
-        data_len,
-        &mut MPIComm::world()).unwrap() };
-    ImagenetShardMPIData{
-      cfg:      self.cfg,
-      mmap:     self.mmap,
-      index:    self.index,
-      window,
-    }*/
-  }*/
+  #[cfg(feature = "mpi")]
+  pub fn scatter_mpi_rma(self) -> ImagenetMPIRMAScatterData {
+    ImagenetMPIRMAScatterData::new(self.cfg, self.index, &self.mmap)
+  }
 }
 
 impl RandomAccess for ImagenetTrainData {
