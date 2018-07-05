@@ -13,7 +13,7 @@ use rand::prelude::*;
 use rand::distributions::*;
 //use rng::*;
 
-use std::cmp::{min};
+use std::cmp::{max, min};
 use std::collections::{VecDeque};
 use std::marker::{PhantomData};
 use std::sync::{Arc};
@@ -410,7 +410,7 @@ enum AsyncCtrlMsg {
 struct AsyncWorkerState<I> where I: Iterator {
   closed:   bool,
   iter:     I,
-  w_tx:     Sender<AsyncWorkerMsg<<I as Iterator>::Item>>,
+  w_tx:     SyncSender<AsyncWorkerMsg<<I as Iterator>::Item>>,
   c_rx:     Receiver<AsyncCtrlMsg>,
 }
 
@@ -469,7 +469,7 @@ struct AsyncSplitWorkerState<I> where I: Iterator {
   closed:   bool,
   ctr:      usize,
   iter:     I,
-  w_txs:    Vec<Sender<AsyncWorkerMsg<<I as Iterator>::Item>>>,
+  w_txs:    Vec<SyncSender<AsyncWorkerMsg<<I as Iterator>::Item>>>,
   c_rxs:    Vec<Receiver<AsyncCtrlMsg>>,
 }
 
@@ -540,7 +540,7 @@ where F: FnOnce() -> I,
   let mut c_rxs = Vec::with_capacity(num_workers);
   let mut w_rx_c_tx_s = Vec::with_capacity(num_workers);
   for rank in 0 .. num_workers {
-    let (w_tx, w_rx) = channel();
+    let (w_tx, w_rx) = sync_channel(2);
     let (c_tx, c_rx) = channel();
     w_txs.push(w_tx);
     c_rxs.push(c_rx);
@@ -628,7 +628,7 @@ impl<Item> DataIter for AsyncSplitDataIter<Item> {
   }
 }
 
-pub fn async_join_data<F, I>(num_workers: usize, mut f: F) -> AsyncJoinDataIter<<I as Iterator>::Item>
+pub fn async_join_data<F, I>(num_workers: usize, capacity: usize, mut f: F) -> AsyncJoinDataIter<<I as Iterator>::Item>
 where F: FnMut(usize) -> I,
       I: DataIter + Send + 'static,
       <I as Iterator>::Item: Send + 'static,
@@ -638,7 +638,7 @@ where F: FnMut(usize) -> I,
   let mut c_txs = vec![];
   let mut w_hs = vec![];
   for rank in 0 .. num_workers {
-    let (w_tx, w_rx) = channel();
+    let (w_tx, w_rx) = sync_channel(max(2, capacity));
     let (c_tx, c_rx) = channel();
     let iter = f(rank);
     let w_h = thread::spawn(move || {
@@ -727,7 +727,7 @@ pub fn async_prefetch_data<I>(capacity: usize, iter: I) -> AsyncPrefetchDataIter
 where I: DataIter + Send + 'static,
       <I as Iterator>::Item: Send,
 {
-  let (w_tx, w_rx) = channel();
+  let (w_tx, w_rx) = sync_channel(max(2, capacity));
   let (c_tx, c_rx) = channel();
   let w_h = thread::spawn(move || {
     let mut state = AsyncWorkerState{
