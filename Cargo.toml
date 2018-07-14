@@ -16,6 +16,7 @@ byteorder = "*"
 colorimage = { path = "../colorimage" }
 #cray_shmem = { path = "../cray_shmem", optional = true }
 extar = { path = "../extar" }
+memarray = { path = "../memarray" }
 mpich = { path = "../libmpich", optional = true }
 rand = "^0.5"
 sharedmem = { path = "../sharedmem" }
