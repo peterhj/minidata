@@ -14,9 +14,11 @@ use rand::prelude::*;
 use rand::distributions::*;
 //use rng::*;
 
+use std::cell::{RefCell};
 use std::cmp::{max, min};
 use std::collections::{VecDeque};
 use std::marker::{PhantomData};
+use std::rc::{Rc};
 use std::sync::{Arc};
 use std::sync::mpsc::*;
 use std::thread;
@@ -64,6 +66,10 @@ pub trait RandomSample<R: Rng>: RandomAccess {
 
   fn uniform_random(self, seed_rng: &mut R) -> UniformRandomDataSrc<Self, R> where Self: Sized {
     UniformRandomDataSrc::new(self, seed_rng)
+  }
+
+  fn uniform_random_shared_rng(self, rng: Rc<RefCell<R>>) -> UniformRandomSharedRngDataSrc<Self, R> where Self: Sized {
+    UniformRandomSharedRngDataSrc::new(self, rng)
   }
 }
 
@@ -201,6 +207,40 @@ impl<D, R> Iterator for UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng
 }
 
 impl<D, R> DataIter for UniformRandomDataSrc<D, R> where D: RandomAccess, R: Rng {
+  fn reset(&mut self) {
+    // TODO
+  }
+}
+
+pub struct UniformRandomSharedRngDataSrc<D, R> where D: RandomAccess, R: Rng {
+  rng:      Rc<RefCell<R>>,
+  data:     D,
+  dist:     Uniform<usize>,
+  _mrk:     PhantomData<R>,
+}
+
+impl<D, R> UniformRandomSharedRngDataSrc<D, R> where D: RandomAccess, R: Rng {
+  pub fn new(data: D, rng: Rc<RefCell<R>>) -> Self {
+    let dist = Uniform::new(0, data.len());
+    UniformRandomSharedRngDataSrc{
+      rng:      rng,
+      data:     data,
+      dist:     dist,
+      _mrk:     PhantomData,
+    }
+  }
+}
+
+impl<D, R> Iterator for UniformRandomSharedRngDataSrc<D, R> where D: RandomAccess, R: Rng {
+  type Item = <D as RandomAccess>::Item;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    let idx = self.rng.borrow_mut().sample(self.dist);
+    Some(self.data.at(idx))
+  }
+}
+
+impl<D, R> DataIter for UniformRandomSharedRngDataSrc<D, R> where D: RandomAccess, R: Rng {
   fn reset(&mut self) {
     // TODO
   }

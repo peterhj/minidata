@@ -17,6 +17,16 @@ pub struct MnistConfig {
   pub test_labels:  Option<PathBuf>,
 }
 
+impl MnistConfig {
+  pub fn open_train_data(&self) -> Result<MnistData, ()> {
+    MnistData::open_train(self.clone())
+  }
+
+  pub fn open_test_data(&self) -> Result<MnistData, ()> {
+    MnistData::open_test(self.clone())
+  }
+}
+
 pub struct MnistData {
   cfg:      MnistConfig,
   num:      usize,
@@ -40,6 +50,7 @@ impl MnistData {
       let num_cols = reader.read_u32::<BigEndian>().unwrap();
       (num_items, num_rows, num_cols)
     };
+    println!("DEBUG: MnistData: {} {} {}", num_items, num_rows, num_cols);
     let labels_file = File::open(labels_path).unwrap();
     let labels_file_len = labels_file.metadata().unwrap().len() as usize;
     let labels_mmap = SharedMem::new(MemoryMap::open_with_offset(labels_file, 0, labels_file_len).unwrap());
