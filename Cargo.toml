@@ -1,20 +1,18 @@
 [package]
-name = "superdata"
+name = "minidata"
 version = "0.0.1"
 authors = ["Peter Jin <peterhaijin@gmail.com>"]
 
 [features]
 mpi = ["mpich"]
-#shmem = ["cray_shmem"]
 
 [lib]
-name = "superdata"
+name = "minidata"
 path = "src/lib.rs"
 
 [dependencies]
 byteorder = "*"
 colorimage = { path = "../colorimage" }
-#cray_shmem = { path = "../cray_shmem", optional = true }
 extar = { path = "../extar" }
 lmdb = "*"
 memarray = { path = "../memarray" }

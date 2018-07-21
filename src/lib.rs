@@ -16,20 +16,17 @@ limitations under the License.
 
 extern crate byteorder;
 extern crate colorimage;
-//#[cfg(feature = "shmem")] extern crate cray_shmem;
 extern crate extar;
 extern crate lmdb;
 extern crate memarray;
 #[cfg(feature = "mpi")] extern crate mpich;
 extern crate rand;
-//extern crate rng;
 extern crate sharedmem;
 extern crate string_cache;
 extern crate time;
 
 use rand::prelude::*;
 use rand::distributions::*;
-//use rng::*;
 
 use std::cell::{RefCell};
 use std::cmp::{max, min};
