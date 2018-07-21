@@ -40,7 +40,7 @@ impl MnistData {
   fn _open(cfg: MnistConfig, images_path: PathBuf, labels_path: PathBuf) -> Result<Self, ()> {
     let images_file = File::open(images_path).unwrap();
     let images_file_len = images_file.metadata().unwrap().len() as usize;
-    let images_mmap = SharedMem::new(MemoryMap::open_with_offset(images_file, 0, images_file_len).unwrap());
+    let images_mmap = SharedMem::from(MemoryMap::open_with_offset(images_file, 0, images_file_len).unwrap());
     let (num_items, num_rows, num_cols) = {
       let mut reader = Cursor::new(images_mmap.clone());
       let magic = reader.read_u32::<BigEndian>().unwrap();
@@ -53,7 +53,7 @@ impl MnistData {
     println!("DEBUG: MnistData: {} {} {}", num_items, num_rows, num_cols);
     let labels_file = File::open(labels_path).unwrap();
     let labels_file_len = labels_file.metadata().unwrap().len() as usize;
-    let labels_mmap = SharedMem::new(MemoryMap::open_with_offset(labels_file, 0, labels_file_len).unwrap());
+    let labels_mmap = SharedMem::from(MemoryMap::open_with_offset(labels_file, 0, labels_file_len).unwrap());
     let num_labels = {
       let mut reader = Cursor::new(labels_mmap.clone());
       let magic = reader.read_u32::<BigEndian>().unwrap();

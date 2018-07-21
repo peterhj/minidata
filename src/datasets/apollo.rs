@@ -92,7 +92,7 @@ impl ApolloSceneData {
     let mut data = ApolloSceneData{
       cfg:      cfg,
       scene_id: scene_id,
-      mmap:     SharedMem::new(mmap),
+      mmap:     SharedMem::from(mmap),
       all_keys: Vec::new(),
       infos:    HashMap::new(),
       //keys_to_records:  BTreeMap::new(),

@@ -270,7 +270,7 @@ impl ImagenetValData {
     let mut data = ImagenetValData{
       cfg:      cfg,
       //labels:   labels,
-      mmap:     SharedMem::new(mmap),
+      mmap:     SharedMem::from(mmap),
       index:    vec![],
     };
     data._build_index(&labels);
@@ -301,7 +301,7 @@ impl ImagenetValData {
       let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
       Ok(ImagenetValData{
         cfg:    cfg,
-        mmap:   SharedMem::new(mmap),
+        mmap:   SharedMem::from(mmap),
         index:  index,
       })
     })
@@ -374,7 +374,7 @@ impl ImagenetTrainData {
     let mut data = ImagenetTrainData{
       cfg:      cfg,
       //labels:   labels,
-      mmap:     SharedMem::new(mmap),
+      mmap:     SharedMem::from(mmap),
       index:    vec![],
     };
     data._build_index(&labels);
@@ -414,7 +414,7 @@ impl ImagenetTrainData {
       let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
       Ok(ImagenetTrainData{
         cfg:    cfg,
-        mmap:   SharedMem::new(mmap),
+        mmap:   SharedMem::from(mmap),
         index:  index,
       })
     })

@@ -29,7 +29,7 @@ impl CityscapesTarData {
     let file = File::open(&tar_path).unwrap();
     let file_len = file.metadata().unwrap().len() as usize;
     let mmap = MemoryMap::open_with_offset(file, 0, file_len).unwrap();
-    let mem = SharedMem::new(mmap);
+    let mem = SharedMem::from(mmap);
     let mut data = CityscapesTarData{
       px_pairs:     vec![],
       data_index:   vec![],

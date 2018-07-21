@@ -27,7 +27,7 @@ impl Cifar10Data {
     let entry_sz = 1 + 32 * 32 * 3;
     let num_entries = file_len / entry_sz;
     assert_eq!(0, file_len % entry_sz);
-    let mmap = SharedMem::new(MemoryMap::open_with_offset(file, 0, file_len).unwrap());
+    let mmap = SharedMem::from(MemoryMap::open_with_offset(file, 0, file_len).unwrap());
     Ok(Cifar10Data{
       cfg:  cfg,
       esz:  entry_sz,
@@ -42,7 +42,7 @@ impl Cifar10Data {
     let entry_sz = 1 + 32 * 32 * 3;
     let num_entries = file_len / entry_sz;
     assert_eq!(0, file_len % entry_sz);
-    let mmap = SharedMem::new(MemoryMap::open_with_offset(file, 0, file_len).unwrap());
+    let mmap = SharedMem::from(MemoryMap::open_with_offset(file, 0, file_len).unwrap());
     Ok(Cifar10Data{
       cfg:  cfg,
       esz:  entry_sz,
