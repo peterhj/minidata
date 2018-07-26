@@ -165,6 +165,57 @@ impl ImagenetMPIRMAScatterData {
   }
 }
 
+#[cfg(feature = "mpi")]
+impl RandomAccess for ImagenetMPIRMAScatterData {
+  type Item = (SharedMem<u8>, u32);
+
+  fn len(&self) -> usize {
+    self.index.len()
+  }
+
+  fn at(&mut self, idx: usize) -> (SharedMem<u8>, u32) {
+    let (offset, size, label) = self.index[idx];
+    let mut value = Vec::with_capacity(size);
+    unsafe { value.set_len(size) };
+    for (rank, split) in self.splits.iter().enumerate() {
+      if split.index_offset <= idx && idx < split.index_offset + split.index_len {
+        let local_offset = offset - split.mem_dist_off;
+        let local_end_pos = local_offset + size;
+        let local_start_blk = local_offset / self.block_sz;
+        let local_end_blk = (local_end_pos - 1) / self.block_sz + 1;
+        assert!(local_offset + size <= split.mem_occ_sz);
+        assert!(local_start_blk < self.nblocks);
+        assert!(local_start_blk < local_end_blk);
+        assert!(local_end_blk <= self.nblocks);
+        let mut val_offset = 0;
+        let mut tmp_offset = local_offset;
+        for blk in local_start_blk .. local_end_blk {
+          let blk_start_pos = blk * self.block_sz;
+          let blk_end_pos = min(split.mem_occ_sz, (blk + 1) * self.block_sz);
+          let blk_data_start = tmp_offset - blk_start_pos;
+          let blk_data_end = min(local_end_pos, blk_end_pos) - blk_start_pos;
+          let blk_data_len = blk_data_end - blk_data_start;
+          assert!(blk_data_len > 0);
+          assert!(blk_data_len <= self.block_sz);
+          {
+            let rma_win = self.rma_wins[blk].lock_shared();
+            rma_win.get_mem(
+                &mut value[val_offset .. val_offset + blk_data_len],
+                rank as _,
+                blk_data_start,
+                blk_data_len);
+          }
+          val_offset += blk_data_len;
+          tmp_offset += blk_data_len;
+        }
+        assert_eq!(val_offset, size);
+        return (SharedMem::from(value), label);
+      }
+    }
+    unreachable!();
+  }
+}
+
 /*#[cfg(feature = "shmem")]
 pub struct ImagenetShmemShardData {
   cfg:      ImagenetConfig,
