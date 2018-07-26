@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+extern crate arrayidx;
 extern crate byteorder;
 extern crate colorimage;
 extern crate extar;

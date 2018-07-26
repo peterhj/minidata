@@ -18,10 +18,9 @@ use ::*;
 
 use byteorder::*;
 use colorimage::*;
-//#[cfg(feature = "shmem")] use cray_shmem::*;
 use extar::*;
 #[cfg(feature = "mpi")] use mpich::*;
-use rand::*;
+use rand::prelude::*;
 use sharedmem::*;
 
 use std::cmp::{max, min};

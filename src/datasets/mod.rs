@@ -20,3 +20,4 @@ pub mod cityscapes;
 pub mod imagenet;
 pub mod lmdb;
 pub mod mnist;
+pub mod npy;

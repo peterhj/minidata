@@ -11,6 +11,7 @@ name = "minidata"
 path = "src/lib.rs"
 
 [dependencies]
+arrayidx = { path = "../arrayidx" }
 byteorder = "*"
 colorimage = { path = "../colorimage" }
 extar = { path = "../extar" }
