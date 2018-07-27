@@ -34,7 +34,7 @@ pub struct NpyMmapData<Idx, T> where T: Copy {
   arr:  MemArray<Idx, T, SharedMem<T>>,
 }
 
-impl<Idx, T> NpyMmapData<Idx, T> where Idx: ArrayIndex, T: Copy {
+impl<Idx, T> NpyMmapData<Idx, T> where Idx: ArrayIndex, T: ToNpyDtypeDesc + Copy {
   pub fn open(path: PathBuf) -> Result<NpyMmapData<Idx, T>, ()> {
     let file = File::open(&path).unwrap();
     let file_len = file.metadata().unwrap().len() as usize;
@@ -47,6 +47,7 @@ impl<Idx, T> NpyMmapData<Idx, T> where Idx: ArrayIndex, T: Copy {
         Ok(header) => header,
       }
     };
+    assert!(header.dtype_desc.matches::<T>());
     let raw_data = mem.shared_slice(header.data_offset .. );
     let data = raw_data.as_typed_slice();
     let size = <Idx as ArrayIndex>::from_nd(header.nd_size);
