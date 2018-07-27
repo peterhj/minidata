@@ -69,7 +69,7 @@ impl<Idx, T> RandomAccess for NpyMmapData<Idx, T> where Idx: ArrayIndex, T: Copy
 
   fn at(&mut self, idx: usize) -> MemArray<Idx::Below, T, SharedMem<T>> {
     let arr_size = self.arr.size();
-    let item_size = arr_size.index_cut((size.dim() - 1) as _);
+    let item_size = arr_size.index_cut((arr_size.dim() - 1) as _);
     if self.arr.is_packed() {
       let item_sz = item_size.flat_len();
       let item_data = self.arr.memory().shared_slice(idx * item_sz .. (idx + 1) * item_sz);
