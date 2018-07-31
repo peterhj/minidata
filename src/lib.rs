@@ -48,6 +48,22 @@ pub trait RandomAccess {
   fn len(&self) -> usize;
   fn at(&mut self, idx: usize) -> Self::Item;
 
+  fn zip<Other>(self, other: Other) -> ZipData<Self, Other> where Self: Sized, Other: RandomAccess {
+    ZipData::new(self, other)
+  }
+
+  fn one_pass(self) -> OnePassDataSrc<Self> where Self: Sized {
+    OnePassDataSrc::new(self)
+  }
+
+  fn shuffle(self) -> ShuffleData<Self> where Self: Sized {
+    ShuffleData::new(self)
+  }
+
+  fn range(self, start_idx: usize, end_idx: usize) -> RangeData<Self> where Self: Sized {
+    RangeData::new(self, start_idx, end_idx)
+  }
+
   fn range_shards(&self, num_shards: usize) -> Vec<RangeData<Self>> where Self: Clone + Sized {
     let total_len = self.len();
     let max_shard_len = (total_len + num_shards - 1) / num_shards;
@@ -66,10 +82,6 @@ pub trait RandomAccess {
     let shard_start_idx = p * max_shard_len;
     let shard_end_idx = min(total_len, (p + 1) * max_shard_len);
     RangeData::new(self, shard_start_idx, shard_end_idx)
-  }
-
-  fn one_pass(self) -> OnePassDataSrc<Self> where Self: Sized {
-    OnePassDataSrc::new(self)
   }
 }
 
@@ -116,6 +128,63 @@ pub trait DataIter: Iterator {
   }
 }
 
+#[derive(Clone)]
+pub struct ZipData<D1, D2> where D1: RandomAccess, D2: RandomAccess {
+  ldata:    D1,
+  rdata:    D2,
+}
+
+impl<D1, D2> ZipData<D1, D2> where D1: RandomAccess, D2: RandomAccess {
+  pub fn new(ldata: D1, rdata: D2) -> Self {
+    ZipData{
+      ldata,
+      rdata,
+    }
+  }
+}
+
+impl<D1, D2> RandomAccess for ZipData<D1, D2> where D1: RandomAccess, D2: RandomAccess {
+  type Item = (<D1 as RandomAccess>::Item, <D2 as RandomAccess>::Item);
+
+  fn len(&self) -> usize {
+    self.ldata.len()
+  }
+
+  fn at(&mut self, idx: usize) -> Self::Item {
+    (self.ldata.at(idx), self.rdata.at(idx))
+  }
+}
+
+#[derive(Clone)]
+pub struct ShuffleData<D> where D: RandomAccess {
+  data:     D,
+  shufidxs: Vec<usize>,
+}
+
+impl<D> ShuffleData<D> where D: RandomAccess {
+  pub fn new(data: D) -> Self {
+    let mut shufidxs: Vec<_> = (0 .. data.len()).collect();
+    thread_rng().shuffle(&mut shufidxs);
+    ShuffleData{
+      data:     data,
+      shufidxs: shufidxs,
+    }
+  }
+}
+
+impl<D> RandomAccess for ShuffleData<D> where D: RandomAccess {
+  type Item = <D as RandomAccess>::Item;
+
+  fn len(&self) -> usize {
+    self.data.len()
+  }
+
+  fn at(&mut self, idx: usize) -> Self::Item {
+    self.data.at(self.shufidxs[idx])
+  }
+}
+
+#[derive(Clone)]
 pub struct RangeData<D> where D: RandomAccess {
   data:     D,
   offset:   usize,
@@ -148,6 +217,7 @@ impl<D> RandomAccess for RangeData<D> where D: RandomAccess {
   }
 }
 
+#[derive(Clone)]
 pub struct OnePassDataSrc<D> where D: RandomAccess {
   data:     D,
   counter:  usize,

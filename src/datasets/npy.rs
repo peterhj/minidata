@@ -29,6 +29,7 @@ use std::fs::{File};
 use std::io::{BufRead, Read, BufReader, BufWriter, Cursor};
 use std::path::{PathBuf};
 
+#[derive(Clone)]
 pub struct NpyMmapData<Idx, T> where T: Copy {
   mmap: SharedMem<u8>,
   arr:  MemArray<Idx, T, SharedMem<T>>,
@@ -56,6 +57,10 @@ impl<Idx, T> NpyMmapData<Idx, T> where Idx: ArrayIndex, T: ToNpyDtypeDesc + Copy
       mmap: mem,
       arr:  arr,
     })
+  }
+
+  pub fn shape(&self) -> Idx {
+    self.arr.size()
   }
 }
 
